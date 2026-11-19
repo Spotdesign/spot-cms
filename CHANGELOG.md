@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.2] - 2026-11-19
+### Fixed
+- Add `.meta` files for `package.json`, `README.md` and `CHANGELOG.md` to silence Unity's
+  "has no meta file ... in an immutable folder" warnings.
+
 ## [1.0.1] - 2026-11-19
 ### Fixed
 - `BuildPublish`: fully-qualify `System.IO.Compression.CompressionLevel` to resolve an ambiguity
