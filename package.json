@@ -1,6 +1,6 @@
 {
   "name": "uk.co.spotdesign.cms",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "displayName": "Spot CMS",
   "description": "Text/content CMS, local settings, and build-and-publish tooling for Spot Design Unity exhibits. Runtime: appAdmin, textNode, page, Settings, a bundled dependency-free JSON reader, and versioned content bootstrap. Editor: text-key export, app-handle (app.json), and one-click Build & Publish Release to GitHub.",
   "unity": "2021.3",

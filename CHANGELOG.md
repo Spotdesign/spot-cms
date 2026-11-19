@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.3] - 2026-11-19
+### Added
+- Publish confirmation now shows the client download link (`https://spotd.uk/get/<repo>`) with a
+  "Copy link" button, ready to paste into the update email.
+
 ## [1.0.2] - 2026-11-19
 ### Fixed
 - Add `.meta` files for `package.json`, `README.md` and `CHANGELOG.md` to silence Unity's

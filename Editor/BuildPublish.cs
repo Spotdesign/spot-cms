@@ -211,8 +211,17 @@ namespace SpotCMS
                     Log(ok ? "  uploaded " + name : "  FAILED " + name);
                 }
 
+                var getUrl = "https://spotd.uk/get/" + _repo;
                 Log("Done. Release " + _version + " published.");
-                EditorUtility.DisplayDialog("Build & Publish", "Release " + _version + " published to " + _owner + "/" + _repo + ".", "OK");
+                Log("Client download link: " + getUrl);
+                if (EditorUtility.DisplayDialog("Build & Publish",
+                        "Release " + _version + " published to " + _owner + "/" + _repo + ".\n\n" +
+                        "Client download link (for the update email):\n" + getUrl,
+                        "Copy link", "OK"))
+                {
+                    EditorGUIUtility.systemCopyBuffer = getUrl;
+                    Log("Download link copied to clipboard.");
+                }
                 _latestName = _version;
             }
             catch (Exception e) { Log("ERROR: " + e); }
