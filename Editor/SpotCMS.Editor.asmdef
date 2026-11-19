@@ -1,0 +1,19 @@
+{
+    "name": "SpotCMS.Editor",
+    "rootNamespace": "SpotCMS",
+    "references": [
+        "SpotCMS",
+        "Unity.TextMeshPro"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
