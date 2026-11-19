@@ -255,7 +255,7 @@ namespace SpotCMS
             else
             {
                 // Contents at the zip root (includeBaseDirectory = false).
-                ZipFile.CreateFromDirectory(buildDir, zipPath, CompressionLevel.Optimal, includeBaseDirectory: false);
+                ZipFile.CreateFromDirectory(buildDir, zipPath, System.IO.Compression.CompressionLevel.Optimal, includeBaseDirectory: false);
             }
             Log($"  zipped {zipName} ({ReadableSize(new FileInfo(zipPath).Length)})");
             return zipPath;
