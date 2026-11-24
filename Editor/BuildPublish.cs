@@ -53,6 +53,7 @@ namespace SpotCMS
         private bool _forceReplace;
         private bool _buildWin = true;
         private bool _buildMac;
+        private bool _replaceExisting;
         private string _version = "";
 
         // discovered context
@@ -126,17 +127,31 @@ namespace SpotCMS
             _buildMac = EditorGUILayout.ToggleLeft("macOS  (Archive-mac.zip)", _buildMac);
 
             EditorGUILayout.Space(6);
-            using (new EditorGUILayout.HorizontalScope())
+            _replaceExisting = EditorGUILayout.ToggleLeft(
+                "Replace current release (test build — rebuild + swap the zip, no new version)", _replaceExisting);
+            if (_replaceExisting)
             {
-                _version = EditorGUILayout.TextField("Release name / version", _version);
-                if (GUILayout.Button("Suggest", GUILayout.Width(70)) && !string.IsNullOrEmpty(_latestName))
-                    _version = NextVersion(_latestName);
+                _version = _latestName;   // target the existing release, don't bump
+                using (new EditorGUI.DisabledScope(true))
+                    EditorGUILayout.TextField("Replacing release", string.IsNullOrEmpty(_latestName) ? "— none found —" : _latestName);
+                EditorGUILayout.HelpBox("Rebuilds and overwrites the assets on the latest release (" +
+                    (string.IsNullOrEmpty(_latestName) ? "none" : _latestName) + "). No new tag or version is created.", MessageType.None);
+            }
+            else
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    _version = EditorGUILayout.TextField("Release name / version", _version);
+                    if (GUILayout.Button("Suggest", GUILayout.Width(70)) && !string.IsNullOrEmpty(_latestName))
+                        _version = NextVersion(_latestName);
+                }
             }
 
             EditorGUILayout.Space(8);
             using (new EditorGUI.DisabledScope(_busy || !CanPublish()))
             {
-                if (GUILayout.Button(_busy ? "Working…" : "Build & Publish", GUILayout.Height(34)))
+                var label = _busy ? "Working…" : (_replaceExisting ? "Rebuild & Replace" : "Build & Publish");
+                if (GUILayout.Button(label, GUILayout.Height(34)))
                     _ = RunAsync();
             }
             if (!CanPublish() && !_busy)
@@ -160,6 +175,7 @@ namespace SpotCMS
             if (string.IsNullOrEmpty(_handle)) return "No app.json handle — run Tools > CMS > App Handle first.";
             if (string.IsNullOrEmpty(ReadToken())) return $"No release token. Set {TokenEnv} or put the PAT in ~/{TokenFileName}.";
             if (!(_buildWin || _buildMac)) return "Pick at least one build target.";
+            if (_replaceExisting && string.IsNullOrWhiteSpace(_latestName)) return "No existing release to replace — uncheck to create the first one.";
             if (string.IsNullOrWhiteSpace(_version)) return "Enter a release name / version.";
             return "";
         }
@@ -197,25 +213,51 @@ namespace SpotCMS
                     assets.Add(("Archive-mac.zip", zip));
                 }
 
-                // 4) create release (tag auto-created from branch)
-                Log($"Creating release \"{_version}\" on {_owner}/{_repo}…");
-                var releaseId = await GitHubCreateRelease(_owner, _repo, token, _version, _branch);
-                if (releaseId == null) { Log("Release creation failed — see errors above."); return; }
-                Log("Release id " + releaseId);
+                // 3b) dated content backup — bundle the StreamingAssets content JSONs into one file
+                //     and attach it to the release, so every release is a restore point (off-machine, per repo).
+                var snapshot = WriteContentSnapshot(_version);
+                if (snapshot != null) { assets.Add(("content-" + _version + ".json", snapshot)); Log("content backup prepared."); }
 
-                // 5) upload assets
+                // 4) target a release — either reuse the latest (replace mode) or create a new one
+                long releaseId;
+                List<(long id, string name)> existingAssets = new List<(long, string)>();
+                if (_replaceExisting)
+                {
+                    var rel = await GitHubGetLatestRelease(_owner, _repo, token);
+                    if (rel == null) { Log("No existing release to replace. Aborting."); return; }
+                    releaseId = rel.Value.id;
+                    existingAssets = rel.Value.assets;
+                    Log($"Replacing assets on existing release \"{rel.Value.name}\" (id {releaseId}).");
+                }
+                else
+                {
+                    Log($"Creating release \"{_version}\" on {_owner}/{_repo}…");
+                    var created = await GitHubCreateRelease(_owner, _repo, token, _version, _branch);
+                    if (created == null) { Log("Release creation failed — see errors above."); return; }
+                    releaseId = created.Value;
+                    Log("Release id " + releaseId);
+                }
+
+                // 5) upload assets (deleting any same-named asset first when replacing)
                 foreach (var (name, path) in assets)
                 {
+                    var old = existingAssets.FirstOrDefault(a => a.name == name);
+                    if (old.id != 0)
+                    {
+                        var del = await GitHubDeleteAsset(_owner, _repo, token, old.id);
+                        Log(del ? "  removed old " + name : "  could not remove old " + name + " (will try upload anyway)");
+                    }
                     Log("Uploading " + name + " (" + ReadableSize(new FileInfo(path).Length) + ")…");
-                    var ok = await GitHubUploadAsset(_owner, _repo, token, releaseId.Value, name, path);
+                    var ok = await GitHubUploadAsset(_owner, _repo, token, releaseId, name, path);
                     Log(ok ? "  uploaded " + name : "  FAILED " + name);
                 }
 
                 var getUrl = "https://spotd.uk/get/" + _repo;
-                Log("Done. Release " + _version + " published.");
+                var verb = _replaceExisting ? "updated" : "published";
+                Log("Done. Release " + _version + " " + verb + ".");
                 Log("Client download link: " + getUrl);
                 if (EditorUtility.DisplayDialog("Build & Publish",
-                        "Release " + _version + " published to " + _owner + "/" + _repo + ".\n\n" +
+                        "Release " + _version + " " + verb + " on " + _owner + "/" + _repo + ".\n\n" +
                         "Client download link (for the update email):\n" + getUrl,
                         "Copy link", "OK"))
                 {
@@ -309,16 +351,77 @@ namespace SpotCMS
             return long.TryParse(idStr, out var id) ? id : (long?)null;
         }
 
+        // Latest release with its id, name and asset list (for replace mode).
+        private async Task<(long id, string name, List<(long id, string name)> assets)?> GitHubGetLatestRelease(string owner, string repo, string token)
+        {
+            using var c = MakeClient(token);
+            var r = await c.GetAsync($"https://api.github.com/repos/{owner}/{repo}/releases/latest");
+            if (!r.IsSuccessStatusCode) return null;
+            var body = await r.Content.ReadAsStringAsync();
+            if (!(Json.Deserialize(body) is Dictionary<string, object> d)) return null;
+            long id = d.TryGetValue("id", out var idv) && idv != null ? Convert.ToInt64(idv) : 0;
+            if (id == 0) return null;
+            string name = (d.TryGetValue("name", out var nv) && nv != null ? nv.ToString() : null)
+                          ?? (d.TryGetValue("tag_name", out var tv) && tv != null ? tv.ToString() : "");
+            var assets = new List<(long, string)>();
+            if (d.TryGetValue("assets", out var av) && av is List<object> arr)
+                foreach (var it in arr)
+                    if (it is Dictionary<string, object> ad &&
+                        ad.TryGetValue("id", out var aid) && aid != null &&
+                        ad.TryGetValue("name", out var an) && an != null)
+                        assets.Add((Convert.ToInt64(aid), an.ToString()));
+            return (id, name, assets);
+        }
+
+        private async Task<bool> GitHubDeleteAsset(string owner, string repo, string token, long assetId)
+        {
+            using var c = MakeClient(token);
+            var r = await c.DeleteAsync($"https://api.github.com/repos/{owner}/{repo}/releases/assets/{assetId}");
+            if (!r.IsSuccessStatusCode) { Log("  delete asset " + (int)r.StatusCode + ": " + await r.Content.ReadAsStringAsync()); return false; }
+            return true;
+        }
+
         private async Task<bool> GitHubUploadAsset(string owner, string repo, string token, long releaseId, string name, string filePath)
         {
             using var c = MakeClient(token);
             using var fs = File.OpenRead(filePath);
             var content = new StreamContent(fs);
-            content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
+            content.Headers.ContentType = new MediaTypeHeaderValue(
+                filePath.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ? "application/json" : "application/zip");
             var url = $"https://uploads.github.com/repos/{owner}/{repo}/releases/{releaseId}/assets?name={Uri.EscapeDataString(name)}";
             var r = await c.PostAsync(url, content);
             if (!r.IsSuccessStatusCode) { Log("  upload " + (int)r.StatusCode + ": " + await r.Content.ReadAsStringAsync()); return false; }
             return true;
+        }
+
+        // Bundle the StreamingAssets content JSONs into one dated snapshot file for the release.
+        // Returns the temp file path, or null if there's no CMS content to back up.
+        private string WriteContentSnapshot(string version)
+        {
+            try
+            {
+                if (!File.Exists(Path.Combine(Dir, "data.json"))) return null; // no text CMS in this project
+                Dictionary<string, object> Read(string f)
+                {
+                    var p = Path.Combine(Dir, f);
+                    if (File.Exists(p) && Json.Deserialize(File.ReadAllText(p)) is Dictionary<string, object> d) return d;
+                    return null;
+                }
+                var snap = new Dictionary<string, object>
+                {
+                    ["version"]   = version,
+                    ["timestamp"] = DateTime.UtcNow.ToString("o"),
+                    ["repo"]      = _repo,
+                    ["data"]      = Read("data.json"),
+                    ["schema"]    = Read("schema.json"),
+                    ["settings"]  = Read("settings.json"),
+                    ["meta"]      = Read("content.meta.json"),
+                };
+                var outPath = Path.Combine(Path.GetTempPath(), "content-" + version + ".json");
+                File.WriteAllText(outPath, Json.Serialize(snap));
+                return outPath;
+            }
+            catch (Exception e) { Log("content backup skipped: " + e.Message); return null; }
         }
 
         // ---------- helpers ----------

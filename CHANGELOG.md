@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.5] - 2026-11-24
+### Added
+- Build & Publish "Replace current release" toggle: rebuilds and swaps the zip (and content
+  backup) on the latest existing release instead of creating a new version — for test iterations.
+  Deletes the same-named asset first, then re-uploads. No new tag/version is created.
+
+## [1.0.4] - 2026-11-20
+### Added
+- Build & Publish now attaches a dated `content-<version>.json` backup (data + schema + settings +
+  meta) to every release, so each release is an off-machine, per-repo restore point. Skipped
+  automatically for projects with no text CMS (no `data.json`).
+
 ## [1.0.3] - 2026-11-19
 ### Added
 - Publish confirmation now shows the client download link (`https://spotd.uk/get/<repo>`) with a
