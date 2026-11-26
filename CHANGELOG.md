@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.6] - 2026-11-26
+### Added
+- Sidecar files: loose files listed in `<project root>/deploy-files.txt` (one path per line, relative
+  to Assets) are copied into the build root next to the exe before zipping — e.g. `screensaver.mp4`,
+  which the app loads from beside the exe at runtime. Replaces the old manual step of adding them to
+  the Archive zip by hand.
+
 ## [1.0.5] - 2026-11-24
 ### Added
 - Build & Publish "Replace current release" toggle: rebuilds and swaps the zip (and content

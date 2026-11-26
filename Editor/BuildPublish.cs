@@ -294,6 +294,9 @@ namespace SpotCMS
                 return null;
             }
 
+            // Copy any loose "sidecar" files (listed in deploy-files.txt) to the build root, next to the exe.
+            CopySidecars(buildDir);
+
             var zipPath = Path.Combine(Path.GetTempPath(), zipName);
             if (File.Exists(zipPath)) File.Delete(zipPath);
 
@@ -392,6 +395,33 @@ namespace SpotCMS
             var r = await c.PostAsync(url, content);
             if (!r.IsSuccessStatusCode) { Log("  upload " + (int)r.StatusCode + ": " + await r.Content.ReadAsStringAsync()); return false; }
             return true;
+        }
+
+        // Copy loose files listed in <project root>/deploy-files.txt into the build root (next to the exe).
+        // Each line is a path relative to the Assets folder, e.g. "screensaver.mp4". Blank lines and
+        // lines starting with # are ignored. The app loads these from next to the exe at runtime, and
+        // Unity doesn't place loose Assets files there itself, so the publisher does.
+        private void CopySidecars(string buildDir)
+        {
+            try
+            {
+                var root = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
+                var listFile = Path.Combine(root, "deploy-files.txt");
+                if (!File.Exists(listFile)) return;
+                foreach (var raw in File.ReadAllLines(listFile))
+                {
+                    var name = raw.Trim();
+                    if (name.Length == 0 || name.StartsWith("#")) continue;
+                    var src = Path.Combine(Application.dataPath, name);
+                    if (File.Exists(src))
+                    {
+                        File.Copy(src, Path.Combine(buildDir, Path.GetFileName(name)), true);
+                        Log("  + bundled sidecar " + Path.GetFileName(name));
+                    }
+                    else Log("  ! sidecar listed but not found in Assets: " + name);
+                }
+            }
+            catch (Exception e) { Log("sidecar copy issue: " + e.Message); }
         }
 
         // Bundle the StreamingAssets content JSONs into one dated snapshot file for the release.
